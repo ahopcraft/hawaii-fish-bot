@@ -1,8 +1,8 @@
 streamlit
 xarray
 matplotlib
-cartopy
 numpy
 pandas
 netCDF4
+
 scipy
