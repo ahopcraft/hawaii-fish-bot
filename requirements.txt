@@ -5,4 +5,5 @@ numpy
 pandas
 netCDF4
 scipy
-
+folium
+streamlit-folium
