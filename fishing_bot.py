@@ -22,22 +22,25 @@ def load_data():
     # Load SST
     ds_sst = xr.open_dataset(sst_url)
     latest_time_sst = ds_sst['time'].values[-1]
+    
+    # ADDED .squeeze() HERE
     sst = ds_sst['analysed_sst'].sel(
         time=latest_time_sst,
         latitude=slice(lat_min, lat_max),
         longitude=slice(lon_min, lon_max)
-    )
+    ).squeeze()
     
     # Load Chlorophyll
     ds_chl = xr.open_dataset(chl_url)
     latest_time_chl = ds_chl['time'].values[-1]
     
-    # FIX: We removed "method='nearest'" because it crashes when slicing!
+    # ADDED .squeeze() HERE TOO
     chl = ds_chl['chlor_a'].sel(
         time=latest_time_chl,
         latitude=slice(lat_min, lat_max),
         longitude=slice(lon_min, lon_max)
-    )
+    ).squeeze()
+    
     return sst, chl, latest_time_sst
 
 # --- 4. RUN THE LOGIC ---
@@ -50,13 +53,13 @@ try:
     fig, ax = plt.subplots(figsize=(10, 6))
     
     # Plot SST (Temp)
+    # vmin/vmax set the color range for Hawaii water temps
     sst_plot = sst_hawaii.plot(ax=ax, cmap='jet', vmin=23, vmax=28, add_colorbar=False)
     
     # Add simple contours for Chlorophyll (Food)
-    # We ignore NaNs (clouds) to prevent errors
     chl_levels = np.linspace(0.1, 0.4, 3)
     
-    # Plotting contours
+    # This was the part crashing before - should be fixed now!
     ax.contour(chl_hawaii['longitude'], chl_hawaii['latitude'], chl_hawaii, 
                levels=chl_levels, colors='white', alpha=0.6, linewidths=1)
 
