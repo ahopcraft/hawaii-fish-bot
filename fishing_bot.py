@@ -6,22 +6,24 @@ import folium
 from streamlit_folium import st_folium
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import random
 
 # --- 1. TITLE & SETUP ---
-st.set_page_config(layout="wide") # Make the app wide so the map is big!
-st.title("🐟 Da Fish Spy 3000: Zoom Edition")
-st.write("Fetching the latest satellite data... wait wunst!")
+st.set_page_config(layout="wide") 
+st.title("🐟 Da Fish Spy 3000: The Works")
+st.write("Fetching SST, Bait, and Boat data... wait wunst!")
 
-# Define the Hawaii Box (Slightly wider for zooming)
+# Define the Hawaii Box
 lat_min, lat_max = 18.0, 23.0 
 lon_min, lon_max = -161.0, -154.0
 
 # --- 2. DATA SOURCES ---
 sst_url = 'https://coastwatch.noaa.gov/erddap/griddap/noaacrwsstDaily'
+chl_url = 'https://coastwatch.noaa.gov/erddap/griddap/noaacwN20VIIRSchlaDaily'
 
-# --- 3. HELPER: SMART SLICE (Keeps data straight) ---
+# --- 3. HELPER: SMART SLICE ---
 def get_smart_slice(ds, var_name, lats, lons):
-    # Check if lat is flipped
+    """Checks if satellite is reading North-to-South or South-to-North"""
     if ds.latitude[0] > ds.latitude[-1]:
         lat_slice = slice(lats[1], lats[0]) 
     else:
@@ -34,64 +36,88 @@ def get_smart_slice(ds, var_name, lats, lons):
     ).squeeze()
     return data
 
-# --- 4. LOADER ---
-@st.cache_data
-def load_data():
-    ds_sst = xr.open_dataset(sst_url)
-    sst = get_smart_slice(ds_sst, 'analysed_sst', (lat_min, lat_max), (lon_min, lon_max))
-    latest_date = ds_sst['time'].values[-1]
-    return sst, latest_date
-
-# --- 5. COLORIZER HELPER (Turns data into an image overlay) ---
-def make_image_overlay(data, vmin=24, vmax=28, cmap_name='jet'):
-    """
-    Folium can't read raw numbers, so we turn the temperature data 
-    into a colored picture (PNG style) with transparency.
-    """
-    # 1. Normalize data (squish numbers between 0 and 1)
+# --- 4. HELPER: MAKE IMAGE OVERLAY ---
+def make_image_overlay(data, vmin, vmax, cmap_name):
+    """Turns raw data numbers into a colored picture for the map"""
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-    
-    # 2. Apply colormap (turn 0-1 into Red-Blue colors)
     cmap = cm.get_cmap(cmap_name)
-    colored_data = cmap(norm(data.values)) # This makes RGBA array
+    colored_data = cmap(norm(data.values)) 
     
-    # 3. Handle "Empty" pixels (Clouds/Land) - Make them transparent
-    # Any NaN (Not a Number) becomes see-through
+    # Make clouds/empty pixels transparent
     mask = np.isnan(data.values)
-    colored_data[mask, 3] = 0  # Set Alpha (transparency) to 0
-    
+    colored_data[mask, 3] = 0  
     return colored_data
 
-# --- 6. MAIN APP LOGIC ---
-try:
-    sst_hawaii, latest_date = load_data()
+# --- 5. HELPER: GHOST BOATS ---
+def get_ghost_boats(n_boats=10):
+    """Simulates other fishermen (since we don't have a paid API)"""
+    boats = []
+    for _ in range(n_boats):
+        # Random spots near the islands
+        lat = random.uniform(20.5, 21.5)
+        lon = random.uniform(-157.5, -156.0)
+        boats.append((lat, lon))
+    return boats
+
+# --- 6. MAIN LOADER ---
+@st.cache_data
+def load_all_data():
+    # Load SST
+    ds_sst = xr.open_dataset(sst_url)
+    sst = get_smart_slice(ds_sst, 'analysed_sst', (lat_min, lat_max), (lon_min, lon_max))
     
-    st.success(f"Latest Intel: {pd.to_datetime(latest_date).date()}")
+    # Load Chlorophyll
+    ds_chl = xr.open_dataset(chl_url)
+    chl = get_smart_slice(ds_chl, 'chlor_a', (lat_min, lat_max), (lon_min, lon_max))
+    
+    latest_date = ds_sst['time'].values[-1]
+    return sst, chl, latest_date
+
+# --- 7. APP LOGIC ---
+try:
+    sst_hawaii, chl_hawaii, latest_date = load_all_data()
+    
+    st.success(f"All Intel Loaded for {pd.to_datetime(latest_date).date()}!")
 
     # --- BUILD THE MAP ---
-    # Center on Maui
     m = folium.Map(location=[20.8, -156.6], zoom_start=7)
 
-    # Convert SST data to an image for the map
-    sst_img = make_image_overlay(sst_hawaii, vmin=24, vmax=28)
-
-    # Add the Image Overlay to the map
-    # We need the bounds: [[lat_min, lon_min], [lat_max, lon_max]]
-    # Note: Xarray lats might be upside down, so we force the correct bounds
-    image_bounds = [[lat_min, lon_min], [lat_max, lon_max]]
-    
+    # LAYER A: TEMPERATURE (Red/Blue)
+    # We use 'jet' colors.
+    sst_img = make_image_overlay(sst_hawaii, vmin=24, vmax=28, cmap_name='jet')
     folium.raster_layers.ImageOverlay(
         image=sst_img,
-        bounds=image_bounds,
+        bounds=[[lat_min, lon_min], [lat_max, lon_max]],
         opacity=0.6,
-        name="Sea Surface Temp"
+        name="Sea Surface Temp (SST)"
     ).add_to(m)
 
-    # Add a Layer Control so you can toggle it on/off
+    # LAYER B: CHLOROPHYLL (Green)
+    # We use 'viridis' (Greens/Yellows) for bait. 
+    # vmin 0.05 to 0.3 is usually good for finding plankton blooms.
+    chl_img = make_image_overlay(chl_hawaii, vmin=0.05, vmax=0.3, cmap_name='viridis')
+    folium.raster_layers.ImageOverlay(
+        image=chl_img,
+        bounds=[[lat_min, lon_min], [lat_max, lon_max]],
+        opacity=0.5,
+        name="Chlorophyll (Bait)",
+        show=False # Start with this HIDDEN so it doesn't look messy
+    ).add_to(m)
+
+    # LAYER C: BOATS
+    boats = get_ghost_boats()
+    for b_lat, b_lon in boats:
+        folium.Marker(
+            [b_lat, b_lon],
+            popup="Fishing Vessel (Simulated)",
+            icon=folium.Icon(color="black", icon="ship", prefix="fa")
+        ).add_to(m)
+
+    # Add the Layer Control (The Menu button to toggle layers)
     folium.LayerControl().add_to(m)
 
-    # Display the interactive map
-    st_folium(m, width=700, height=500)
+    # Show the map
+    st_folium(m, width=800, height=600)
 
 except Exception as e:
     st.error(f"Auwe! Something broke: {e}")
