@@ -13,7 +13,6 @@ lat_min, lat_max = 18.5, 22.5
 lon_min, lon_max = -160.0, -154.0
 
 # --- 2. THE DATA SOURCES ---
-# We use the direct ERDDAP links
 sst_url = 'https://coastwatch.noaa.gov/erddap/griddap/noaacrwsstDaily'
 chl_url = 'https://coastwatch.noaa.gov/erddap/griddap/noaacwN20VIIRSchlaDaily'
 
@@ -32,11 +31,12 @@ def load_data():
     # Load Chlorophyll
     ds_chl = xr.open_dataset(chl_url)
     latest_time_chl = ds_chl['time'].values[-1]
+    
+    # FIX: We removed "method='nearest'" because it crashes when slicing!
     chl = ds_chl['chlor_a'].sel(
         time=latest_time_chl,
         latitude=slice(lat_min, lat_max),
-        longitude=slice(lon_min, lon_max),
-        method='nearest'
+        longitude=slice(lon_min, lon_max)
     )
     return sst, chl, latest_time_sst
 
@@ -56,7 +56,7 @@ try:
     # We ignore NaNs (clouds) to prevent errors
     chl_levels = np.linspace(0.1, 0.4, 3)
     
-    # Plotting trick: Matplotlib standard doesn't need 'transform=ccrs'
+    # Plotting contours
     ax.contour(chl_hawaii['longitude'], chl_hawaii['latitude'], chl_hawaii, 
                levels=chl_levels, colors='white', alpha=0.6, linewidths=1)
 
